@@ -15,7 +15,6 @@ def receive_messages(client_socket):
             print(f"Error: {e}")
             break
 
-
 # Main function to handle client operations
 def main():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -4,13 +4,20 @@ import re
 
 # Server configuration
 SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 5555
+SERVER_PORT = 5555 
 
 # Regular expression for command parsing
 COMMAND_REGEX = r'^/(\w+)(?:\s(.*))?$'
 
 # Dictionary to store nicknames of clients
 clients_nickname = {}
+
+# Status codes and phrases
+STATUS_OK = 200, "OK"
+STATUS_BAD_REQUEST = 400, "Bad Request"
+STATUS_NOT_FOUND = 404, "Not Found"
+STATUS_INTERNAL_ERROR = 500, "Internal Server Error"
+
 
 # Function to handle client connections
 def handle_client(client_socket, nickname):
@@ -22,7 +29,7 @@ def handle_client(client_socket, nickname):
                     handle_command(message, client_socket, nickname)
                 else:
                     print(f"{nickname}: {message}")
-                    broadcast_message(f"{nickname}: {message}")
+                    
             else:
                 remove_client(client_socket, nickname)
                 break
@@ -34,7 +41,34 @@ def handle_client(client_socket, nickname):
 # Function to broadcast messages to all clients
 def broadcast_message(message):
     for client in clients:
-        client.send(message.encode("utf-8"))
+        response = create_http_response_ok(message)
+        client.send(response.encode("utf-8"))
+
+# Function to create HTTP response
+def create_http_response_ok(content):
+    status_line = f"HTTP/1.1 {STATUS_OK} \r\n"
+    headers = "Content-Type: text/plain\r\n"
+    body = f"\r\n{content}"
+    return status_line + headers + body
+
+def create_http_response_bad(content):
+    status_line = f"HTTP/1.1 {STATUS_BAD_REQUEST} \r\n"
+    headers = "Content-Type: text/plain\r\n"
+    body = f"\r\n{content}"
+    return status_line + headers + body
+    
+def create_http_response_bad_NOT_FOUND(content):
+    status_line = f"HTTP/1.1 {STATUS_NOT_FOUND} \r\n"
+    headers = "Content-Type: text/plain\r\n"
+    body = f"\r\n{content}"
+    return status_line + headers + body
+
+def create_http_response_STATUS_INTERNAL_ERROR(content):
+    status_line = f"HTTP/1.1 {STATUS_INTERNAL_ERROR} \r\n"
+    headers = "Content-Type: text/plain\r\n"
+    body = f"\r\n{content}"
+    return status_line + headers + body
+
 
 # Function to handle commands
 def handle_command(command, client_socket, nickname):
@@ -43,15 +77,16 @@ def handle_command(command, client_socket, nickname):
     elif command.startswith("/kick"):
         kick_user(command, client_socket)
     else:
-        client_socket.send("Invalid command. Type /help for a list of available commands.".encode("utf-8"))
+        send_status_bad(client_socket, STATUS_BAD_REQUEST, "Invalid command.")
 
 # Function to list all users
 def list_users(client_socket):
     if clients:
         user_list = "Connected users:\n" + "\n".join(clients_nickname.values())
-        client_socket.send(user_list.encode("utf-8"))
+        response = create_http_response_ok(user_list)
+        client_socket.send(response.encode("utf-8"))
     else:
-        client_socket.send("No users connected.".encode("utf-8"))
+        send_status_not(client_socket, STATUS_NOT_FOUND, "No users connected.")
 
 # Function to kick a user
 def kick_user(command, client_socket):
@@ -61,9 +96,28 @@ def kick_user(command, client_socket):
         for client in clients:
             if clients_nickname[client] == nickname_to_kick:
                 remove_client(client, nickname_to_kick)
-                client_socket.send(f"{nickname_to_kick} has been kicked.".encode("utf-8"))
+                send_status_ok(client_socket, STATUS_OK, f"{nickname_to_kick} has been kicked.")
                 return
-        client_socket.send(f"User '{nickname_to_kick}' not found.".encode("utf-8"))
+        send_status_not(client_socket, STATUS_NOT_FOUND, f"User '{nickname_to_kick}' not found.")
+    else:
+        send_status_in(client_socket, STATUS_BAD_REQUEST, "Invalid kick command format.")
+
+# Function to send status messages
+def send_status_ok(client_socket, status_code, message):
+    response = create_http_response_ok(message)
+    client_socket.send(response.encode("utf-8"))
+
+def send_status_bad(client_socket, status_code, message):
+    response = create_http_response_bad(message)
+    client_socket.send(response.encode("utf-8"))
+
+def send_status_not(client_socket, status_code, message):
+    response = create_http_response_bad_NOT_FOUND(message)
+    client_socket.send(response.encode("utf-8"))
+
+def send_status_in(client_socket, status_code, message):
+    response = create_http_response_STATUS_INTERNAL_ERROR(message)
+    client_socket.send(response.encode("utf-8"))
 
 # Function to remove client from the list
 def remove_client(client_socket, nickname):
@@ -90,7 +144,7 @@ def main():
         clients_nickname[client_socket] = nickname
 
         print(f"User '{nickname}' has joined the chat.")
-        broadcast_message(f"User '{nickname}' has joined the chat.")
+        broadcast_message(f"User '{nickname}' joined the chat.")
 
         client_thread = threading.Thread(target=handle_client, args=(client_socket, nickname))
         client_thread.start()
